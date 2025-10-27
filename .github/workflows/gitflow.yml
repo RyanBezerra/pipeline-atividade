@@ -1,0 +1,171 @@
+name: GitFlow Workflow
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Ação do GitFlow'
+        required: true
+        default: 'feature-start'
+        type: choice
+        options:
+        - feature-start
+        - feature-finish
+        - release-start
+        - release-finish
+        - hotfix-start
+        - hotfix-finish
+      branch_name:
+        description: 'Nome da branch (para feature/hotfix)'
+        required: false
+        type: string
+      version:
+        description: 'Versão (para release)'
+        required: false
+        type: string
+
+jobs:
+  gitflow-action:
+    name: Executar Ação GitFlow
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout do código
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        token: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Configurar Git
+      run: |
+        git config --global user.name "GitHub Actions"
+        git config --global user.email "actions@github.com"
+        
+    - name: Executar GitFlow - Feature Start
+      if: ${{ github.event.inputs.action == 'feature-start' }}
+      run: |
+        echo "🚀 Iniciando nova feature: ${{ github.event.inputs.branch_name }}"
+        git checkout develop
+        git pull origin develop
+        git checkout -b feature/${{ github.event.inputs.branch_name }}
+        git push -u origin feature/${{ github.event.inputs.branch_name }}
+        echo "✅ Feature branch criada: feature/${{ github.event.inputs.branch_name }}"
+        
+    - name: Executar GitFlow - Feature Finish
+      if: ${{ github.event.inputs.action == 'feature-finish' }}
+      run: |
+        echo "🏁 Finalizando feature: ${{ github.event.inputs.branch_name }}"
+        git checkout feature/${{ github.event.inputs.branch_name }}
+        git pull origin feature/${{ github.event.inputs.branch_name }}
+        git checkout develop
+        git pull origin develop
+        git merge --no-ff feature/${{ github.event.inputs.branch_name }} -m "Merge feature/${{ github.event.inputs.branch_name }} into develop"
+        git push origin develop
+        git branch -d feature/${{ github.event.inputs.branch_name }}
+        git push origin --delete feature/${{ github.event.inputs.branch_name }}
+        echo "✅ Feature ${{ github.event.inputs.branch_name }} finalizada e mergeada em develop"
+        
+    - name: Executar GitFlow - Release Start
+      if: ${{ github.event.inputs.action == 'release-start' }}
+      run: |
+        echo "🚀 Iniciando release: ${{ github.event.inputs.version }}"
+        git checkout develop
+        git pull origin develop
+        git checkout -b release/${{ github.event.inputs.version }}
+        git push -u origin release/${{ github.event.inputs.version }}
+        echo "✅ Release branch criada: release/${{ github.event.inputs.version }}"
+        
+    - name: Executar GitFlow - Release Finish
+      if: ${{ github.event.inputs.action == 'release-finish' }}
+      run: |
+        echo "🏁 Finalizando release: ${{ github.event.inputs.version }}"
+        git checkout release/${{ github.event.inputs.version }}
+        git pull origin release/${{ github.event.inputs.version }}
+        
+        # Merge para main
+        git checkout main
+        git pull origin main
+        git merge --no-ff release/${{ github.event.inputs.version }} -m "Release ${{ github.event.inputs.version }}"
+        git tag -a v${{ github.event.inputs.version }} -m "Release version ${{ github.event.inputs.version }}"
+        git push origin main
+        git push origin v${{ github.event.inputs.version }}
+        
+        # Merge para develop
+        git checkout develop
+        git pull origin develop
+        git merge --no-ff release/${{ github.event.inputs.version }} -m "Merge release/${{ github.event.inputs.version }} into develop"
+        git push origin develop
+        
+        # Limpeza
+        git branch -d release/${{ github.event.inputs.version }}
+        git push origin --delete release/${{ github.event.inputs.version }}
+        echo "✅ Release ${{ github.event.inputs.version }} finalizada"
+        
+    - name: Executar GitFlow - Hotfix Start
+      if: ${{ github.event.inputs.action == 'hotfix-start' }}
+      run: |
+        echo "🚀 Iniciando hotfix: ${{ github.event.inputs.branch_name }}"
+        git checkout main
+        git pull origin main
+        git checkout -b hotfix/${{ github.event.inputs.branch_name }}
+        git push -u origin hotfix/${{ github.event.inputs.branch_name }}
+        echo "✅ Hotfix branch criada: hotfix/${{ github.event.inputs.branch_name }}"
+        
+    - name: Executar GitFlow - Hotfix Finish
+      if: ${{ github.event.inputs.action == 'hotfix-finish' }}
+      run: |
+        echo "🏁 Finalizando hotfix: ${{ github.event.inputs.branch_name }}"
+        git checkout hotfix/${{ github.event.inputs.branch_name }}
+        git pull origin hotfix/${{ github.event.inputs.branch_name }}
+        
+        # Merge para main
+        git checkout main
+        git pull origin main
+        git merge --no-ff hotfix/${{ github.event.inputs.branch_name }} -m "Hotfix ${{ github.event.inputs.branch_name }}"
+        git tag -a v${{ github.event.inputs.branch_name }} -m "Hotfix version ${{ github.event.inputs.branch_name }}"
+        git push origin main
+        git push origin v${{ github.event.inputs.branch_name }}
+        
+        # Merge para develop
+        git checkout develop
+        git pull origin develop
+        git merge --no-ff hotfix/${{ github.event.inputs.branch_name }} -m "Merge hotfix/${{ github.event.inputs.branch_name }} into develop"
+        git push origin develop
+        
+        # Limpeza
+        git branch -d hotfix/${{ github.event.inputs.branch_name }}
+        git push origin --delete hotfix/${{ github.event.inputs.branch_name }}
+        echo "✅ Hotfix ${{ github.event.inputs.branch_name }} finalizado"
+        
+    - name: Criar Pull Request
+      if: ${{ github.event.inputs.action == 'feature-start' || github.event.inputs.action == 'hotfix-start' }}
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const action = '${{ github.event.inputs.action }}';
+          const branchName = '${{ github.event.inputs.branch_name }}';
+          
+          let title, body, head, base;
+          
+          if (action === 'feature-start') {
+            title = `Feature: ${branchName}`;
+            body = `## Descrição\nNova feature: ${branchName}\n\n## Checklist\n- [ ] Implementação concluída\n- [ ] Testes passando\n- [ ] Documentação atualizada\n- [ ] Code review realizado`;
+            head = `feature/${branchName}`;
+            base = 'develop';
+          } else if (action === 'hotfix-start') {
+            title = `Hotfix: ${branchName}`;
+            body = `## Descrição\nHotfix para: ${branchName}\n\n## Checklist\n- [ ] Correção implementada\n- [ ] Testes passando\n- [ ] Verificação em produção\n- [ ] Code review realizado`;
+            head = `hotfix/${branchName}`;
+            base = 'main';
+          }
+          
+          await github.rest.pulls.create({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            title: title,
+            head: head,
+            base: base,
+            body: body
+          });
+          
+          console.log(`Pull Request criado: ${title}`);

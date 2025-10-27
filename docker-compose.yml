@@ -1,11 +1,44 @@
-version: "3"
+version: '3.8'
+
 services:
-  admin:
+  adminlte:
     build: .
-    command: npm run dev
     ports:
-      - 3000:3000
-      - 3001:3001
+      - "8080:80"
+    environment:
+      - NODE_ENV=production
     volumes:
-    - .:/code
-    - /code/node_modules
+      - ./dist:/usr/share/nginx/html:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Serviço para desenvolvimento
+  adminlte-dev:
+    build: .
+    ports:
+      - "8081:80"
+    environment:
+      - NODE_ENV=development
+    volumes:
+      - .:/app
+      - /app/node_modules
+    command: ["nginx", "-g", "daemon off;"]
+    profiles:
+      - dev
+
+  # Serviço de monitoramento (opcional)
+  nginx-exporter:
+    image: nginx/nginx-prometheus-exporter:0.10.0
+    ports:
+      - "9113:9113"
+    command:
+      - '-nginx.scrape-uri=http://adminlte:80/nginx_status'
+    depends_on:
+      - adminlte
+    profiles:
+      - monitoring

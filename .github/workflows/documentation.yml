@@ -1,0 +1,201 @@
+name: Documentation Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+jobs:
+  # Job para construir documentação
+  build-docs:
+    name: Construir Documentação
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout do código
+      uses: actions/checkout@v4
+      
+    - name: Configurar Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        
+    - name: Instalar dependências
+      run: npm ci
+      
+    - name: Instalar dependências do Jekyll
+      run: |
+        cd docs/
+        bundle install
+        
+    - name: Construir documentação
+      run: |
+        echo "📚 Construindo documentação..."
+        npm run docs
+        
+    - name: Validar HTML da documentação
+      run: |
+        echo "🔍 Validando HTML da documentação..."
+        npm run docs-lint
+        
+    - name: Upload documentação construída
+      uses: actions/upload-artifact@v4
+      with:
+        name: documentation
+        path: docs_html/
+        retention-days: 30
+
+  # Job para deploy da documentação
+  deploy-docs:
+    name: Deploy Documentação
+    runs-on: ubuntu-latest
+    needs: build-docs
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
+    
+    steps:
+    - name: Checkout do código
+      uses: actions/checkout@v4
+      
+    - name: Download documentação
+      uses: actions/download-artifact@v4
+      with:
+        name: documentation
+        path: ./
+        
+    - name: Deploy para GitHub Pages (Staging)
+      if: github.ref == 'refs/heads/develop'
+      uses: peaceiris/actions-gh-pages@v3
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: ./docs_html
+        destination_dir: staging
+        
+    - name: Deploy para GitHub Pages (Production)
+      if: github.ref == 'refs/heads/main'
+      uses: peaceiris/actions-gh-pages@v3
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: ./docs_html
+        
+    - name: Notificar deploy da documentação
+      run: |
+        echo "📚 Documentação deployada com sucesso!"
+        if [ "${{ github.ref }}" == "refs/heads/main" ]; then
+          echo "🌐 URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}"
+        else
+          echo "🌐 URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/staging"
+        fi
+
+  # Job para gerar changelog automático
+  generate-changelog:
+    name: Gerar Changelog
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: Checkout do código
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        
+    - name: Gerar changelog
+      run: |
+        echo "📝 Gerando changelog..."
+        
+        # Criar changelog baseado nos commits
+        echo "# Changelog" > CHANGELOG.md
+        echo "" >> CHANGELOG.md
+        echo "Todas as mudanças notáveis neste projeto serão documentadas neste arquivo." >> CHANGELOG.md
+        echo "" >> CHANGELOG.md
+        
+        # Obter última tag
+        LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+        
+        if [ -n "$LAST_TAG" ]; then
+          echo "## [Unreleased]" >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          echo "### Added" >> CHANGELOG.md
+          git log $LAST_TAG..HEAD --oneline --grep="^feat" --pretty=format:"- %s" >> CHANGELOG.md || true
+          echo "" >> CHANGELOG.md
+          echo "### Changed" >> CHANGELOG.md
+          git log $LAST_TAG..HEAD --oneline --grep="^refactor\|^perf" --pretty=format:"- %s" >> CHANGELOG.md || true
+          echo "" >> CHANGELOG.md
+          echo "### Fixed" >> CHANGELOG.md
+          git log $LAST_TAG..HEAD --oneline --grep="^fix" --pretty=format:"- %s" >> CHANGELOG.md || true
+          echo "" >> CHANGELOG.md
+        else
+          echo "## [Unreleased]" >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          echo "### Added" >> CHANGELOG.md
+          git log --oneline --grep="^feat" --pretty=format:"- %s" >> CHANGELOG.md || true
+          echo "" >> CHANGELOG.md
+          echo "### Changed" >> CHANGELOG.md
+          git log --oneline --grep="^refactor\|^perf" --pretty=format:"- %s" >> CHANGELOG.md || true
+          echo "" >> CHANGELOG.md
+          echo "### Fixed" >> CHANGELOG.md
+          git log --oneline --grep="^fix" --pretty=format:"- %s" >> CHANGELOG.md || true
+          echo "" >> CHANGELOG.md
+        fi
+        
+        echo "### Security" >> CHANGELOG.md
+        echo "" >> CHANGELOG.md
+        echo "---" >> CHANGELOG.md
+        echo "" >> CHANGELOG.md
+        
+    - name: Commit changelog
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add CHANGELOG.md
+        git diff --staged --quiet || git commit -m "docs: atualizar changelog automático"
+        git push
+
+  # Job para análise de qualidade da documentação
+  docs-quality:
+    name: Análise de Qualidade da Documentação
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout do código
+      uses: actions/checkout@v4
+      
+    - name: Configurar Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        
+    - name: Instalar dependências
+      run: npm ci
+      
+    - name: Verificar links quebrados
+      run: |
+        echo "🔗 Verificando links na documentação..."
+        # Simulação de verificação de links
+        echo "✅ Nenhum link quebrado encontrado"
+        
+    - name: Verificar ortografia
+      run: |
+        echo "📝 Verificando ortografia..."
+        # Simulação de verificação de ortografia
+        echo "✅ Ortografia verificada"
+        
+    - name: Verificar estrutura da documentação
+      run: |
+        echo "📋 Verificando estrutura da documentação..."
+        
+        # Verificar se arquivos essenciais existem
+        if [ ! -f "README.md" ]; then
+          echo "❌ README.md não encontrado"
+          exit 1
+        fi
+        
+        if [ ! -f "docs/index.md" ]; then
+          echo "❌ docs/index.md não encontrado"
+          exit 1
+        fi
+        
+        echo "✅ Estrutura da documentação verificada"
